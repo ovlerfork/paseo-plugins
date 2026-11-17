@@ -1653,6 +1653,43 @@ test("a local deliverable opens on the daemon host by id, only inside the worktr
   assert.equal(opened.length, 1);
 });
 
+test("an environment root allows registered external attachments within its real directory", async (t) => {
+  const previous = process.env.PASEO_PROGRESS_ALLOWED_ROOT;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PASEO_PROGRESS_ALLOWED_ROOT;
+    else process.env.PASEO_PROGRESS_ALLOWED_ROOT = previous;
+  });
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  const away = await mkdtemp(join(tmpdir(), "progress-allowed-"));
+  t.after(() => rm(away, { recursive: true, force: true }));
+  const allowed = join(away, "allowed");
+  await mkdir(allowed);
+  await mkdir(join(away, "allowed-other"));
+  await writeFile(join(allowed, "note.md"), "# External");
+  await writeFile(join(away, "allowed-other", "note.md"), "private");
+  await symlink(join(away, "allowed-other", "note.md"), join(allowed, "escape.md"));
+  await w.run("deliverable", "add", "External", allowed + "/");
+  await w.run("deliverable", "add", "Sibling", join(away, "allowed-other", "note.md"));
+  delete process.env.PASEO_PROGRESS_ALLOWED_ROOT;
+  await assert.rejects(previewDeliverable(w.directory, "D1/note.md"), /outside this worktree/);
+  process.env.PASEO_PROGRESS_ALLOWED_ROOT = "";
+  await assert.rejects(previewDeliverable(w.directory, "D1/note.md"), /outside this worktree/);
+  process.env.PASEO_PROGRESS_ALLOWED_ROOT = allowed;
+  assert.deepEqual(await previewDeliverable(w.directory, "D1/note.md"), {
+    kind: "markdown",
+    markdown: "# External",
+    bytes: 10,
+    truncated: false,
+  });
+  assert.deepEqual(await openDeliverable(w.directory, "D1/note.md", async () => {}), {
+    opened: join(await realpath(allowed), "note.md"),
+  });
+  await assert.rejects(previewDeliverable(w.directory, "D2"), /outside this worktree/);
+  await assert.rejects(previewDeliverable(w.directory, "D1/escape.md"), /outside this worktree/);
+  await assert.rejects(previewDeliverable(w.directory, "D1/../allowed-other/note.md"), /outside/);
+});
+
 test("only files whose default app shows them open on the host, and the panel offers Open for exactly those", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Run");

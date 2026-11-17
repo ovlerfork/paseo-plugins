@@ -62,8 +62,8 @@ export function hostOpener(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): O
 }
 
 // A deliverable or question attachment the agent recorded, found by reference,
-// so the panel can never reach an arbitrary path. Only files inside the
-// worktree resolve.
+// so the panel can never reach an arbitrary path. Files resolve inside the
+// worktree or PASEO_PROGRESS_ALLOWED_ROOT (empty by default).
 async function resolveAttachment(directory: string, ref: string, verb: string): Promise<{ path: string; realTarget: string; worktree: string }> {
   const { base, inner } = splitRef(ref);
   const worktree = findRoot(directory);
@@ -76,7 +76,12 @@ async function resolveAttachment(directory: string, ref: string, verb: string): 
   const realTarget = await realpath(resolve(realRoot, path)).catch(() => null);
   if (!realTarget) throw new Error(`${path} no longer exists.`);
   const inside = relative(realRoot, realTarget);
-  if (outside(inside)) throw new Error(`${path} is outside this worktree, so it was not ${verb}.`);
+  if (outside(inside)) {
+    const allowedRoot = process.env.PASEO_PROGRESS_ALLOWED_ROOT ?? "";
+    const realAllowedRoot = allowedRoot && nodePath.isAbsolute(allowedRoot) ? await realpath(allowedRoot).catch(() => null) : null;
+    if (!realAllowedRoot || !(await stat(realAllowedRoot)).isDirectory() || outside(relative(realAllowedRoot, realTarget)))
+      throw new Error(`${path} is outside this worktree, so it was not ${verb}.`);
+  }
   return { path, realTarget, worktree };
 }
 
