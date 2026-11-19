@@ -1655,27 +1655,29 @@ test("a local deliverable opens on the daemon host by id, only inside the worktr
 
 test("an environment root allows registered external attachments within its real directory", async (t) => {
   const previous = process.env.PASEO_PROGRESS_ALLOWED_ROOT;
+  const previousHome = process.env.PASEO_HOME;
   t.after(() => {
     if (previous === undefined) delete process.env.PASEO_PROGRESS_ALLOWED_ROOT;
     else process.env.PASEO_PROGRESS_ALLOWED_ROOT = previous;
+    if (previousHome === undefined) delete process.env.PASEO_HOME;
+    else process.env.PASEO_HOME = previousHome;
   });
   const w = await worktree(t);
   await w.run("start", "Run");
   const away = await mkdtemp(join(tmpdir(), "progress-allowed-"));
   t.after(() => rm(away, { recursive: true, force: true }));
-  const allowed = join(away, "allowed");
+  process.env.PASEO_HOME = away;
+  const allowed = join(away, "allowed folder");
   await mkdir(allowed);
-  await mkdir(join(away, "allowed-other"));
+  await mkdir(join(away, "allowed folder sibling"));
   await writeFile(join(allowed, "note.md"), "# External");
-  await writeFile(join(away, "allowed-other", "note.md"), "private");
-  await symlink(join(away, "allowed-other", "note.md"), join(allowed, "escape.md"));
+  await writeFile(join(away, "allowed folder sibling", "note.md"), "private");
+  await symlink(join(away, "allowed folder sibling", "note.md"), join(allowed, "escape.md"));
   await w.run("deliverable", "add", "External", allowed + "/");
-  await w.run("deliverable", "add", "Sibling", join(away, "allowed-other", "note.md"));
+  await w.run("deliverable", "add", "Sibling", join(away, "allowed folder sibling", "note.md"));
   delete process.env.PASEO_PROGRESS_ALLOWED_ROOT;
   await assert.rejects(previewDeliverable(w.directory, "D1/note.md"), /outside this worktree/);
-  process.env.PASEO_PROGRESS_ALLOWED_ROOT = "";
-  await assert.rejects(previewDeliverable(w.directory, "D1/note.md"), /outside this worktree/);
-  process.env.PASEO_PROGRESS_ALLOWED_ROOT = allowed;
+  await writeFile(join(away, "progress.env"), `PASEO_PROGRESS_ALLOWED_ROOT="${allowed}"\n`);
   assert.deepEqual(await previewDeliverable(w.directory, "D1/note.md"), {
     kind: "markdown",
     markdown: "# External",
@@ -1687,7 +1689,11 @@ test("an environment root allows registered external attachments within its real
   });
   await assert.rejects(previewDeliverable(w.directory, "D2"), /outside this worktree/);
   await assert.rejects(previewDeliverable(w.directory, "D1/escape.md"), /outside this worktree/);
-  await assert.rejects(previewDeliverable(w.directory, "D1/../allowed-other/note.md"), /outside/);
+  await assert.rejects(previewDeliverable(w.directory, "D1/../allowed folder sibling/note.md"), /outside/);
+  process.env.PASEO_PROGRESS_ALLOWED_ROOT = "";
+  await assert.rejects(previewDeliverable(w.directory, "D1/note.md"), /outside this worktree/);
+  process.env.PASEO_PROGRESS_ALLOWED_ROOT = allowed;
+  assert.equal((await previewDeliverable(w.directory, "D1/note.md")).kind, "markdown");
 });
 
 test("only files whose default app shows them open on the host, and the panel offers Open for exactly those", async (t) => {
